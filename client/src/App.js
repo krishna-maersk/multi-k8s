@@ -19,7 +19,7 @@ function App() {
                     {/*>*/}
                     {/*    Learn React*/}
                     {/*</a>*/}
-                    <p>Fib Calculator version 2</p>
+                    <p>Fib Calculator with kubernetes!</p>
                     <Link to="/" style={{color:"burlywood"}}>Home</Link>
                     <Link to="/OtherPage" style={{color:"burlywood"}}>Other Page</Link>
                 </header>

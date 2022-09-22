@@ -42,7 +42,10 @@ jobs:
           sudo gcloud components install kubectl
       - run: |
           gcloud auth activate-service-account --key-file service-account.json
-
+      - run: |
+          gcloud config set project multi-k8s-363106
+      - run: |
+          gcloud config set compute/zone ${{ env.GKE_ZONE }}
 #
 #      - name: Configure Docker to use the gcloud command-line tool as a credential
 #        run: |-

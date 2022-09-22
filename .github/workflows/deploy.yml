@@ -9,42 +9,83 @@ env:
   GKE_ZONE: us-central1-c   # Add your cluster zone here.
   DEPLOYMENT_NAME: multi-k8s # Add your deployment name here.
   IMAGE: static-site
+  SHA: $(git rev-parse HEAD)
 
 
 jobs:
   setup-build-publish-deploy:
     name: Setup, Build, Publish, and Deploy
     runs-on: ubuntu-latest
-    environment: production
+
     steps:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Decrypt GPG file
-        run: |
-           gpg --quiet --batch --yes --decrypt --passphrase="${{ secrets.GPG_PASSPHRASE }}" --output service-account.json service-account.json.gpg
+      - name: Test
+        run: |-
+            docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+            docker build -t dappilik/react-test -f ./client/Dockerfile.dev ./client
+            docker run -e CI=true dappilik/react-test npm test
 
-#      - id: 'auth'
-#        name: 'Authenticate to Google Cloud'
-#        uses: 'google-github-actions/auth@v0'
-#        with:
-#          credentials_json: 'service-account.json'
+      - name: Set Service Key
+        uses: 'google-github-actions/auth@v0'
+        with:
+          credentials_json: '${{ secrets.GKE_SA_KEY }}'
+
+      - name: Set Project
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          project_id: multi-k8s-363106
+
+      - name: Auth
+        run: |-
+          gcloud --quiet auth configure-docker    
+
+      - name: Get Credentials
+        uses: google-github-actions/get-gke-credentials@v0
+        with:
+          cluster_name: multi-cluster
+          location: us-central1-c
+
+      - name: Build
+        run: |-
+          docker build -t dappilik/multi-client:latest -t dappilik/multi-client:${{ env.SHA }} -f ./client/Dockerfile ./client
+          docker build -t dappilik/multi-server:latest -t dappilik/multi-server:${{ env.SHA }} -f ./server/Dockerfile ./server
+          docker build -t dappilik/multi-worker:latest -t dappilik/multi-worker:${{ env.SHA }} -f ./worker/Dockerfile ./worker
+
+      - name: Push
+        run: |-
+          docker push dappilik/multi-client:latest
+          docker push dappilik/multi-server:latest
+          docker push dappilik/multi-worker:latest
+          
+          docker push dappilik/multi-client:${{ env.SHA }}
+          docker push dappilik/multi-server:${{ env.SHA }}
+          docker push dappilik/multi-worker:${{ env.SHA }}    
+
+      - name: Apply
+        run: |-
+          kubectl apply -f k8s
+          kubectl set image deployments/server-deployment server=dappilik/multi-server:${{ env.SHA }}
+          kubectl set image deployments/client-deployment client=dappilik/multi-client:${{ env.SHA }}
+          kubectl set image deployments/worker-deployment worker=dappilik/multi-worker:${{ env.SHA }}
+
+#      - name: Decrypt GPG file
+#        run: |
+#           gpg --quiet --batch --yes --decrypt --passphrase="${{ secrets.GPG_PASSPHRASE }}" --output service-account.json service-account.json.gpg
 #
-#      - name: Setup gcloud CLI
-#        uses: google-github-actions/setup-gcloud@94337306dda8180d967a56932ceb4ddcf01edae7
-#        with:
-#          service_account_key: ${{ secrets.GKE_SA_KEY }}
-#          project_id: ${{ secrets.GKE_PROJECT }}
+#
+#      - run: curl https://sdk.cloud.google.com | bash > /dev/null
+#      - run: source $HOME/google-cloud-sdk/path.bash.inc
+#      - run: |
+#         gcloud install kubectl
+#      - run: |
+#          gcloud auth activate-service-account --key-file service-account.json
+#      - run: |
+#          gcloud config set project multi-k8s-363106
+#      - run: |
+#          gcloud config set compute/zone ${{ env.GKE_ZONE }}
+#      - run: |
+#          gcloud container clusters get-credentials multi-cluster
+          
 
-      - run: curl https://sdk.cloud.google.com | bash > /dev/null
-      - run: source $HOME/google-cloud-sdk/path.bash.inc
-      - run: |
-         sudo apt-get install -y kubectl
-      - run: |
-          gcloud auth activate-service-account --key-file service-account.json
-      - run: |
-          gcloud config set project multi-k8s-363106
-      - run: |
-          gcloud config set compute/zone ${{ env.GKE_ZONE }}
-      - run: |
-          gcloud container clusters get-credentials multi-cluster
